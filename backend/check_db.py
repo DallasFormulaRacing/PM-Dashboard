@@ -1,12 +1,17 @@
 import asyncio
-import db
+
+from sqlalchemy import text
+
+from db import SessionLocal, engine
 
 
 async def main():
-    await db.connect()
-    row = await db.pool.fetchrow("SELECT current_database(), count(*) FROM users")
-    print(row)
-    await db.disconnect()
+    async with SessionLocal() as session:
+        result = await session.execute(
+            text("SELECT current_database(), count(*) FROM users")
+        )
+        print(result.one())
+    await engine.dispose()
 
 
 asyncio.run(main())

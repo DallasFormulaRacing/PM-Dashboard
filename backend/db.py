@@ -1,13 +1,6 @@
-import asyncpg
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
 from config import settings
 
-pool = None
-
-
-async def connect():
-    global pool
-    pool = await asyncpg.create_pool(settings.database_url)
-
-
-async def disconnect():
-    await pool.close()
+engine = create_async_engine(settings.database_url)
+SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
