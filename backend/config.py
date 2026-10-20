@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     discord_guild_id: str
     database_url: str
     jwt_secret: str
+    DFR_AUTH_URL: str
+    DFR_TOKEN_URL: str
+    DFR_USERINFO_URL: str
+    DFR_CLIENT_ID: str
+    DFR_CLIENT_SECRET: str
+    DFR_REDIRECT_URI: str
 
 
 settings = Settings()
