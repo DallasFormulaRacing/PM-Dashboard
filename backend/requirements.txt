@@ -1,0 +1,6 @@
+fastapi[standard]
+pydantic-settings
+sqlalchemy[asyncio]
+asyncpg
+pyjwt
+httpx
