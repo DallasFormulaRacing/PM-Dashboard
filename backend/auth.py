@@ -8,8 +8,6 @@ from config import settings
 
 router = APIRouter(prefix="/auth")
 
-DISCORD_AUTHORIZE_URL = "https://discord.com/oauth2/authorize"
-
 valid_states = set()
 
 
@@ -19,10 +17,10 @@ def login():
     valid_states.add(state)
 
     params = {
-        "client_id": settings.discord_client_id,
-        "redirect_uri": settings.discord_redirect_uri,
+        "client_id": settings.DFR_CLIENT_ID,
+        "redirect_uri": settings.DFR_REDIRECT_URI,
         "response_type": "code",
-        "scope": "identify guilds",
+        "scope": "openid profile roles",
         "state": state,
     }
-    return RedirectResponse(f"{DISCORD_AUTHORIZE_URL}?{urlencode(params)}")
+    return RedirectResponse(f"{settings.DFR_AUTH_URL}?{urlencode(params)}")
