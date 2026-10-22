@@ -1,0 +1,1 @@
+"""Approved source registry persistence."""

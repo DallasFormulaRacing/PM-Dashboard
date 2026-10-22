@@ -1,0 +1,1 @@
+"""PostgreSQL full-text retrieval."""

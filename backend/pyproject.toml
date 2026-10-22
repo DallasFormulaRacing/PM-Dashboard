@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "f1-rag-backend"
+version = "0.1.0"
+description = "Notion and Box knowledge-base RAG service"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "alembic==1.18.4",
+    "pgvector==0.5.1",
+    "psycopg[binary]==3.3.6",
+    "pydantic-settings==2.10.1",
+    "sqlalchemy==2.0.39",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --tb=short"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["alembic*", "tests*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
