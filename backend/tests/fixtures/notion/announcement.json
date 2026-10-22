@@ -1,0 +1,19 @@
+{
+  "source": "notion",
+  "external_id": "fixture-notion-announcement-001",
+  "title": "Synthetic Program Announcement",
+  "source_url": "https://www.notion.so/example/synthetic-program-announcement",
+  "source_version": "2026-10-22T15:45:00.000Z",
+  "modified_at": "2026-10-22T15:45:00Z",
+  "sections": [
+    {
+      "text": "The synthetic mentoring program opens for applications next month.",
+      "heading_path": ["Announcements", "Mentoring Program"],
+      "page_number": null
+    }
+  ],
+  "metadata": {
+    "fixture": true,
+    "announcement_category": "Programs"
+  }
+}

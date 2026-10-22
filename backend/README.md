@@ -49,6 +49,18 @@ The first migration enables pgvector, creates the `rag` schema, and creates:
 
 It uses exact vector search initially; no HNSW or IVFFlat index is created.
 
+## Normalized documents
+
+`app.domain.documents.NormalizedDocument` is the shared boundary between source
+connectors and the rest of the pipeline. Both Notion Markdown and extracted Box
+files must produce this model before chunking, embedding, or persistence. The
+contract rejects blank documents, unsupported sources, ambiguous timestamps,
+invalid citation URLs, non-JSON metadata, and unknown fields.
+
+Synthetic Notion and extracted-PDF fixtures live under `tests/fixtures/`; no
+external source credentials or organizational content are required by the unit
+tests.
+
 ## Run tests
 
 With the Docker database healthy, run from `backend/`:

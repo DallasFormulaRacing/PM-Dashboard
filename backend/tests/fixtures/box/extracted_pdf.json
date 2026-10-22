@@ -1,0 +1,25 @@
+{
+  "source": "box",
+  "external_id": "fixture-box-file-001",
+  "title": "Synthetic Benefits Guide.pdf",
+  "source_url": "https://app.box.com/file/fixture-box-file-001",
+  "source_version": "7",
+  "modified_at": "2026-10-21T19:30:00Z",
+  "sections": [
+    {
+      "text": "This synthetic guide describes the annual enrollment process.",
+      "heading_path": ["Annual Enrollment"],
+      "page_number": 1
+    },
+    {
+      "text": "Contact the fictional benefits team for fixture-only assistance.",
+      "heading_path": ["Support"],
+      "page_number": 3
+    }
+  ],
+  "metadata": {
+    "fixture": true,
+    "filename": "Synthetic Benefits Guide.pdf",
+    "mime_type": "application/pdf"
+  }
+}
