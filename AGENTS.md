@@ -1,8 +1,22 @@
 # Project Context — Notion + Box Knowledge Base RAG
 
 > **Audience:** AI coding agents, software engineers, and technical reviewers working on this repository.
-> **Status:** Planning / pre-implementation. This document describes intended architecture and acceptance criteria; it does **not** mean any component already exists.
-> **Last updated:** 2026-10-26.
+> **Status:** Early implementation — local persistence, normalization, and the fixture-tested Notion connector are in progress.
+> **Last updated:** 2026-10-27.
+
+## Current progress and next steps
+
+**Implemented so far:** backend/FastAPI structure; Dockerized PostgreSQL + pgvector configuration; Alembic migration for the `rag` schema and four core tables; validated `NormalizedDocument` models; synthetic Notion/Box fixtures; and an allowlist-enforcing asynchronous Notion connector with pagination, retries, Markdown normalization, and truncation handling. Unit and migration integration tests cover these components. Many API, ingestion, retrieval, generation, and Box modules remain placeholders.
+
+**Notion checkpoint 1 implemented:** approved data-source record normalization; published/active lifecycle filtering before body extraction; selected property normalization and searchable property sections (including assignee/attendee IDs and available names); configured source paths/property-ID overrides; schema and parent-membership checks; paginated selected people/text properties; and a synthetic offline preview. See `backend/README.md` for review commands. Chunking and content cleanup remain unimplemented. Pause for user verification between the three agreed checkpoints: (1) record ingestion, (2) cleanup/chunking, (3) controlled live validation.
+
+**Not yet validated:** the Notion connector has not completed a controlled live test against the F1 workspace. The Codex Notion plugin is for read-only inspection and does not replace the backend's own least-privilege Notion integration token.
+
+**Next steps:**
+
+1. Review Notion checkpoint 1, then implement cleanup/chunking in checkpoint 2; perform controlled live validation on approved F1 pages/data sources in checkpoint 3. Workspace structure has been inspected read-only; fixtures remain synthetic.
+2. Implement and test the single-file Box connector using the same normalization contract.
+3. Complete one vertical slice: normalize → chunk → embed → atomically persist → retrieve → answer with verified citations through `/ask`.
 
 ## 1. What we are building
 

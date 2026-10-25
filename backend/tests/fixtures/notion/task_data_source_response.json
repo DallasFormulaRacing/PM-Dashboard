@@ -1,0 +1,19 @@
+{
+  "object": "data_source",
+  "id": "33333333-3333-4333-8333-333333333333",
+  "title": [{"type": "text", "plain_text": "Synthetic task tracker"}],
+  "properties": {
+    "Task Name": {"id": "title", "type": "title", "title": {}},
+    "Status": {
+      "id": "state", "type": "status",
+      "status": {"options": [
+        {"name": "Not Started"}, {"name": "In Progress"},
+        {"name": "Waiting"}, {"name": "Completed"}
+      ]}
+    },
+    "Description": {"id": "description", "type": "rich_text", "rich_text": {}},
+    "Priority": {"id": "priority", "type": "select", "select": {}},
+    "Due Date": {"id": "due", "type": "date", "date": {}},
+    "Assigned To": {"id": "owners", "type": "people", "people": {}}
+  }
+}
