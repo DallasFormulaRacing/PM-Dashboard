@@ -10,11 +10,13 @@ requires-python = ">=3.12,<3.14"
 dependencies = [
     "alembic==1.18.4",
     "httpx==0.28.1",
+    "markdown-it-py==2.2.0",
     "pgvector==0.5.1",
     "psycopg[binary]==3.3.6",
     "pydantic==2.14.1",
     "pydantic-settings==2.10.1",
     "sqlalchemy==2.0.39",
+    "tiktoken==0.11.0",
 ]
 
 [project.optional-dependencies]

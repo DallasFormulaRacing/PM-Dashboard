@@ -9,12 +9,15 @@
     {
       "text": "The synthetic mentoring program opens for [applications](https://example.com/apply) next month.",
       "heading_path": ["Announcements", "Mentoring Program"],
-      "page_number": null
+      "page_number": null,
+      "section_reference": "markdown:lines:5-5"
     },
     {
       "text": "Categories: Programs",
       "heading_path": ["Record properties"],
-      "page_number": null
+      "page_number": null,
+      "section_reference": "notion:properties",
+      "kind": "properties"
     }
   ],
   "metadata": {
@@ -28,6 +31,12 @@
     "property_schema_version": "notion-v1",
     "lifecycle_policy": "implicit_active",
     "properties": {"categories": ["Programs"]},
+    "notion_cleanup": {
+      "version": "notion-cleanup-v1",
+      "removed_placeholders": 0,
+      "removed_empty_items": 0,
+      "removed_empty_blocks": 0
+    },
     "notion_created_time": "2026-10-20T14:00:00+00:00",
     "notion_archived": false,
     "notion_in_trash": false,

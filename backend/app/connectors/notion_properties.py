@@ -47,6 +47,7 @@ class NotionSourcePolicy(BaseModel):
     document_kind: DocumentKind | None = None
     ancestor_path: tuple[str, ...] = ()
     property_overrides: dict[PropertyField, str] = Field(default_factory=dict)
+    remove_template_placeholders: bool = True
 
     @field_validator("ancestor_path")
     @classmethod

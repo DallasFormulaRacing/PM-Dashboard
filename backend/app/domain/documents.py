@@ -27,6 +27,8 @@ class DocumentSection(BaseModel):
     text: str
     heading_path: list[NonEmptyString] = Field(default_factory=list)
     page_number: PositivePageNumber | None = None
+    section_reference: NonEmptyString | None = None
+    kind: Literal["content", "properties"] = "content"
 
     @field_validator("text")
     @classmethod

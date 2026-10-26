@@ -9,13 +9,14 @@ from datetime import datetime
 import random
 import re
 from typing import Any
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlsplit
 from uuid import UUID
 
 import httpx
 
 from app.config import Settings, get_settings
 from app.domain.documents import DocumentSection, NormalizedDocument
+from app.ingestion.notion_markdown import MarkdownExtractionError, clean_notion_markdown
 from app.connectors.notion_properties import (
     ACTIVE_STATUSES,
     PROPERTY_ALIASES,
@@ -34,8 +35,6 @@ NOTION_API_BASE_URL = "https://api.notion.com"
 DEFAULT_NOTION_API_VERSION = "2026-03-11"
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504, 529})
 BLOCKED_RATE_LIMIT_CODE = "public_api_request_blocked"
-HEADING_PATTERN = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$")
-FENCE_PATTERN = re.compile(r"^[ \t]*(```|~~~)")
 
 
 class NotionConnectorError(RuntimeError):
@@ -238,7 +237,7 @@ class NotionConnector:
 
         canonical_id = self._require_allowed_page(page_id)
         primary = await self._fetch_markdown_resource(canonical_id)
-        markdown_parts = [primary.markdown] if primary.markdown.strip() else []
+        markdown = primary.markdown
         pending = list(primary.unknown_block_ids)
         original_unknown_ids = tuple(primary.unknown_block_ids)
         recovered: list[str] = []
@@ -261,23 +260,38 @@ class NotionConnector:
                     continue
                 raise
 
+            replaced = False
+
+            def replace_unknown(match: re.Match[str]) -> str:
+                nonlocal replaced
+                attribute = re.search(r'''\burl=(["'])(.*?)\1''', match[0])
+                if attribute:
+                    url = urlsplit(attribute[2])
+                    candidate = url.fragment or url.path.rstrip("/").rsplit("/", 1)[-1]
+                    if candidate.replace("-", "") == block_id.replace("-", ""):
+                        replaced = True
+                        return subtree.markdown
+                return match[0]
+
+            markdown = re.sub(r"<unknown\b[^>]*/>", replace_unknown, markdown)
+            if not replaced:
+                unresolved.append(block_id)
+                continue
             recovered.append(block_id)
             warnings.extend(subtree.warnings)
-            if subtree.markdown.strip():
-                markdown_parts.append(subtree.markdown)
             if subtree.truncated and not subtree.unknown_block_ids:
                 truncated_without_ids = True
-            pending.extend(
-                child_id
-                for child_id in subtree.unknown_block_ids
-                if child_id not in seen
-            )
+            for child_id in subtree.unknown_block_ids:
+                if child_id in seen:
+                    unresolved.append(child_id)
+                elif child_id not in pending:
+                    pending.append(child_id)
 
         unresolved.extend(block_id for block_id in pending if block_id not in unresolved)
         complete = not unresolved and not truncated_without_ids
 
         return NotionMarkdownResult(
-            markdown="\n\n".join(markdown_parts),
+            markdown=markdown,
             was_truncated=primary.truncated,
             unknown_block_ids=original_unknown_ids,
             recovered_block_ids=tuple(recovered),
@@ -461,10 +475,20 @@ class NotionConnector:
         if not markdown_result.complete:
             raise NotionIncompleteContentError(markdown_result.unresolved_block_ids)
 
-        sections = _markdown_to_sections(markdown_result.markdown)
+        try:
+            cleanup = clean_notion_markdown(
+                markdown_result.markdown,
+                remove_template_placeholders=policy.remove_template_placeholders,
+            )
+        except MarkdownExtractionError as error:
+            raise NotionResponseError(str(error)) from error
+        sections = list(cleanup.sections)
         summary = property_summary(normalized_properties)
         if summary:
-            sections.append(DocumentSection(text=summary, heading_path=["Record properties"]))
+            sections.append(DocumentSection(
+                text=summary, heading_path=["Record properties"], kind="properties",
+                section_reference="notion:properties",
+            ))
         if not sections:
             raise NotionResponseError("Notion page contains no extractable text")
 
@@ -491,6 +515,7 @@ class NotionConnector:
                 else "implicit_active"
             ),
             "properties": normalized_properties,
+            "notion_cleanup": cleanup.metadata(),
             "notion_created_time": created_time.isoformat() if created_time else None,
             "notion_archived": bool(page.get("archived", False)),
             "notion_in_trash": bool(page.get("in_trash", False)),
@@ -799,39 +824,3 @@ def _optional_datetime(value: object) -> datetime | None:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise NotionResponseError("Notion page returned a timestamp without a timezone")
     return parsed
-
-
-def _markdown_to_sections(markdown: str) -> list[DocumentSection]:
-    sections: list[DocumentSection] = []
-    heading_stack: list[str] = []
-    content_lines: list[str] = []
-    active_fence: str | None = None
-
-    def flush_section() -> None:
-        text = "\n".join(content_lines).strip()
-        if text:
-            sections.append(DocumentSection(text=text, heading_path=list(heading_stack)))
-        content_lines.clear()
-
-    for line in markdown.splitlines():
-        fence_match = FENCE_PATTERN.match(line)
-        if fence_match:
-            marker = fence_match.group(1)
-            if active_fence is None:
-                active_fence = marker
-            elif active_fence == marker:
-                active_fence = None
-            content_lines.append(line)
-            continue
-
-        heading_match = None if active_fence else HEADING_PATTERN.match(line)
-        if heading_match:
-            flush_section()
-            level = len(heading_match.group(1))
-            heading = heading_match.group(2).strip()
-            heading_stack[level - 1 :] = [heading]
-            continue
-        content_lines.append(line)
-
-    flush_section()
-    return sections

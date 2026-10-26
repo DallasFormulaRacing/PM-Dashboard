@@ -2,8 +2,9 @@
 
 This directory contains the independently deployable RAG service. The current
 implementation includes the PostgreSQL/pgvector persistence schema, Alembic
-migrations, and fixture-tested Notion record normalization. API, chunking,
-embedding, retrieval, and generation modules are still placeholders.
+migrations, fixture-tested Notion record normalization and cleanup, and local
+token-aware chunking. API, embedding, retrieval, and generation modules are
+still placeholders.
 
 ## Local database
 
@@ -81,7 +82,9 @@ supports cursor pagination, bounded retries for transient/rate-limit responses,
 explicit Markdown warnings.
 
 When a Markdown response is truncated, returned unknown block IDs are fetched
-as subtrees. A page is not normalized if any subtree remains unresolved, which
+as subtrees and restored at their original placeholders. Recovery rejects cycles
+and missing placement markers instead of appending content under a different
+heading. A page is not normalized if any subtree remains unresolved, which
 prevents partial content from being silently indexed. Unsupported-content
 warnings are retained in `NormalizedDocument.metadata`.
 
@@ -172,10 +175,82 @@ The default produces one normalized task with body and property evidence; the
 other commands produce zero documents and a skip reason. These fixtures mirror
 observed workspace shapes but contain no copied organizational records.
 
-Template cleanup, chunk-size/token limits, section/block references, attachment
-extraction, and live validation are subsequent checkpoints. The current Markdown
-completeness checks still reject unresolved unknown blocks; an unsupported embed
-can therefore prevent an otherwise eligible record from normalizing.
+### Checkpoint 2: cleanup and chunking
+
+`app.ingestion.notion_markdown.clean_notion_markdown` groups enhanced Markdown
+into heading sections and retains lists, code, callouts, toggles, and tables as
+structural units. Presentation columns are flattened. Empty checklist items
+are removed only when they have no meaningful children. Exact known task/project
+template paragraphs and empty placeholder blocks are removed; code and quoted
+text are preserved. To keep exact template phrases in a particular source, set
+`remove_template_placeholders: false` in that source's policy. Cleanup counts and
+its version are recorded under `metadata.notion_cleanup`.
+
+`DocumentSection` now has optional `section_reference` and a `kind` distinguishing
+body content from generated property evidence. `markdown:lines:start-end` refers
+to the completed Markdown snapshot after subtree recovery, not a Notion URL
+fragment. `notion:properties` identifies generated property evidence. No block
+anchors are fabricated. Chunk references retain section indexes, heading paths,
+page numbers, and these selectors; citations still use the canonical document URL.
+
+`app.ingestion.chunking.DocumentChunker` emits validated `DocumentChunk` objects
+with source identity/URL, ordered indexes, evidence text, source references,
+token counts, hashes, tokenizer, and strategy version. Title, configured source
+path, and available meeting/record date are included in the counted text.
+
+Default `ChunkingConfig` values:
+
+| Setting | Default |
+| --- | --- |
+| Prose/section packing target | 500 tokens |
+| Maximum final chunk | 700 tokens |
+| Whole short announcement | 400 tokens |
+| Overlap within an oversized prose paragraph | Up to 50 tokens |
+| Tokenizer | `cl100k_base` |
+
+Short tasks and timeline records stay whole when they fit the maximum. Meeting
+notes, projects, and technical documents retain heading boundaries. Long prose
+is split at natural boundaries where possible, then at Unicode character
+boundaries. Overlap never crosses sections or source pages. Long pipe tables
+and native Notion XML tables are split between complete rows, repeating actual
+headers. Lists, code, callouts, toggles, property records, and single table rows
+that cannot fit raise `ChunkingError`; the caller receives no partial chunk list.
+This conservative limit is an explicit review case, not silent truncation.
+
+Hashes are deterministic for source identity, evidence, references, configuration,
+and strategy version. They are preparation for later indexing, not a persistence
+or embedding implementation. The generic chunker also retains page locations
+from the existing extracted Box fixture; Box download/Docling remain separate work.
+
+Install the updated dependencies with `python -m pip install -e '.[dev]'`.
+Tokenization runs locally. On the first use, tiktoken downloads its public
+vocabulary; no document text is sent. Prewarm it while network is available:
+
+```bash
+python -c 'import tiktoken; tiktoken.get_encoding("cl100k_base")'
+```
+
+Then inspect the synthetic examples from `backend/`:
+
+```bash
+python scripts/preview_notion_fixture.py --example task --chunks-only
+python scripts/preview_notion_fixture.py --example meeting --chunks-only
+python scripts/preview_notion_fixture.py --example technical --chunks-only
+python scripts/preview_notion_fixture.py --status Draft --chunks-only
+python -m pytest tests/unit tests/e2e
+```
+
+Omit `--chunks-only` to see the normalized sections and cleanup counts beside the
+chunks. All examples use mock HTTP responses and synthetic content. Real media
+attachments, unresolved unknown blocks, or unbalanced containers raise extraction
+errors: attachment text/OCR and structured-block fallback are not implemented.
+Live validation is checkpoint 3, following user review of this checkpoint.
+
+Implementation references:
+
+- <https://developers.notion.com/guides/data-apis/enhanced-markdown>
+- <https://markdown-it-py.readthedocs.io/en/latest/using.html>
+- <https://github.com/openai/tiktoken>
 
 ## Run tests
 

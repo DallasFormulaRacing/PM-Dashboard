@@ -82,9 +82,7 @@ def test_approved_page_normalizes_to_saved_fixture() -> None:
 
     assert actual == expected
     assert "[applications](https://example.com/apply)" in actual.sections[0].text
-    assert {request.headers["Notion-Version"] for request in observed_requests} == {
-        "2026-03-11"
-    }
+    assert {request.headers["Notion-Version"] for request in observed_requests} == {"2026-03-11"}
     assert all(
         request.headers["Authorization"] == "Bearer synthetic-test-token"
         for request in observed_requests
@@ -139,6 +137,7 @@ def test_inaccessible_page_returns_controlled_error(status_code: int) -> None:
 def test_truncated_markdown_recovers_nested_content() -> None:
     primary = load_fixture("markdown_response.json")
     primary.update(truncated=True, unknown_block_ids=[BLOCK_ID])
+    primary["markdown"] += f'\n\n<unknown url="https://www.notion.so/{PAGE_ID}#{BLOCK_ID}" />'
     subtree = {
         "object": "page_markdown",
         "id": BLOCK_ID,
@@ -373,3 +372,66 @@ def test_incomplete_data_source_query_is_reported() -> None:
             await client.aclose()
 
     run(scenario())
+
+
+def test_recovered_subtree_stays_under_original_heading() -> None:
+    primary = load_fixture("markdown_response.json")
+    primary.update(
+        markdown=(
+            f'## Decisions\n\n<unknown url="https://www.notion.so/{PAGE_ID}#{BLOCK_ID}" />'
+            "\n\n## Action items\n\nKeep this separate action."
+        ),
+        truncated=True,
+        unknown_block_ids=[BLOCK_ID],
+    )
+    subtree = {
+        "object": "page_markdown",
+        "markdown": "Keep this recovered decision.",
+        "truncated": False,
+        "unknown_block_ids": [],
+    }
+
+    def handler(request: httpx.Request):
+        if request.url.path == f"/v1/pages/{PAGE_ID}":
+            return httpx.Response(200, json=load_fixture("page_response.json"))
+        return httpx.Response(200, json=subtree if BLOCK_ID in request.url.path else primary)
+
+    async def scenario():
+        connector, client = make_connector(handler)
+        try:
+            return await connector.fetch_and_normalize_page(PAGE_ID)
+        finally:
+            await client.aclose()
+
+    doc = run(scenario())
+    assert doc.sections[0].text == "Keep this recovered decision."
+    assert doc.sections[0].heading_path == ["Decisions"]
+    assert doc.sections[1].heading_path == ["Action items"]
+
+
+@pytest.mark.parametrize("cycle", [False, True])
+def test_recovery_requires_a_location_and_rejects_cycles(cycle) -> None:
+    primary = load_fixture("markdown_response.json")
+    primary.update(truncated=True, unknown_block_ids=[BLOCK_ID])
+    if cycle:
+        primary["markdown"] += f'\n\n<unknown url="https://www.notion.so/{PAGE_ID}#{BLOCK_ID}" />'
+    subtree = {
+        "object": "page_markdown",
+        "markdown": "Recovered text.",
+        "truncated": False,
+        "unknown_block_ids": [BLOCK_ID] if cycle else [],
+    }
+
+    def handler(request):
+        return httpx.Response(200, json=subtree if BLOCK_ID in request.url.path else primary)
+
+    async def scenario():
+        connector, client = make_connector(handler)
+        try:
+            return await connector.fetch_notion_markdown(PAGE_ID)
+        finally:
+            await client.aclose()
+
+    result = run(scenario())
+    assert result.complete is False
+    assert BLOCK_ID in result.unresolved_block_ids
