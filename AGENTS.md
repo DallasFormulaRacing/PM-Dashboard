@@ -2,19 +2,54 @@
 
 > **Audience:** AI coding agents, software engineers, and technical reviewers working on this repository.
 > **Status:** Early implementation — local persistence, normalization, and the fixture-tested Notion connector are in progress.
-> **Last updated:** 2026-10-27.
+> **Last updated:** 2026-10-29.
 
 ## Current progress and next steps
 
 **Implemented so far:** backend/FastAPI structure; Dockerized PostgreSQL + pgvector configuration; Alembic migration for the `rag` schema and four core tables; validated `NormalizedDocument` models; synthetic Notion/Box fixtures; and an allowlist-enforcing asynchronous Notion connector with pagination, retries, Markdown normalization, and truncation handling. Unit and migration integration tests cover these components. Many API, ingestion, retrieval, generation, and Box modules remain placeholders.
 
-**Notion checkpoint 1 implemented:** approved data-source record normalization; published/active lifecycle filtering before body extraction; selected property normalization and searchable property sections (including assignee/attendee IDs and available names); configured source paths/property-ID overrides; schema and parent-membership checks; paginated selected people/text properties; and a synthetic offline preview. See `backend/README.md` for review commands. Chunking and content cleanup remain unimplemented. Pause for user verification between the three agreed checkpoints: (1) record ingestion, (2) cleanup/chunking, (3) controlled live validation.
+**Notion checkpoint 1 implemented and reviewed:** approved data-source record normalization; published/active lifecycle filtering before body extraction; selected property normalization and searchable property sections (including assignee/attendee IDs and available names); configured source paths/property-ID overrides; schema and parent-membership checks; paginated selected people/text properties; and a synthetic offline preview.
 
-**Not yet validated:** the Notion connector has not completed a controlled live test against the F1 workspace. The Codex Notion plugin is for read-only inspection and does not replace the backend's own least-privilege Notion integration token.
+**Notion checkpoint 2 implemented and reviewed:** conservative template/empty-item cleanup; heading sections with Markdown snapshot references; in-place subtree recovery; deterministic token-aware chunks preserving title/date context, source references, and table headers; synthetic task/meeting/technical previews and offline connector-to-chunks tests. Oversized structured units and unextracted attachments fail explicitly. See `backend/README.md` for review commands.
+
+**Notion checkpoint 3 single-page pilot passed (2026-10-29):** the backend's own least-privilege integration read the approved Software meeting-note pilot via REST API `2026-03-11`. It produced 2 sections and 2 chunks (107/19 tokens), verified canonical page identity/URL and section references, reported zero extraction warnings, and returned identical output on repeated live reads. Explicit meeting-note classification was tested without changing `.env`; schema inference alone defaults this generic-title page to technical documentation. A reusable content-free diagnostic lives at `backend/scripts/check_notion_live.py`. The 120 unit/offline end-to-end tests passed. Pause for user verification before expanding scope.
+
+**Bounded Notion data-source validation completed (2026-10-29):** four approved sources yielded 16 distinct sampled records: 9 processed into 12 in-memory chunks, 5 excluded with zero body requests, and 2 rejected for attachment/media content or unresolved Markdown blocks. Live source queries, schema/property mappings, server-side eligibility filtering, one nonempty assignee, source membership, canonical citations, and repeated-read determinism were exercised. Sampling is limited to five records and five query pages per run; it must not drive deletion reconciliation. See `backend/docs/notion-live-validation-2026-10-29.md` for the breakdown and explicit limits. The ignored local `.env` contains the four test source IDs and explicit source kinds; the token was preserved.
+
+**Not yet live-validated:** complete production batch ingestion across an entire corpus, actual cursor traversal, nonempty attendees/large people lists, dates in successfully chunked records, long/structured pages, and attachment extraction. Dates were checked in query metadata only. Six accepted sample records had only property evidence; first-corpus curation is still needed. The Codex Notion plugin is for read-only inspection and does not replace the backend's own integration token. Live page content and credentials were not committed or printed; embeddings, generation, and database writes were not run.
+
+**Local review artifacts:** at the user's request, actual chunks can be regenerated with `backend/scripts/export_notion_chunks.py` into the Git-ignored `backend/.local/` directory. These contain real organizational content and must not be committed or treated as sanitized fixtures. The export is a refreshed live snapshot, not an archived copy of earlier in-memory tests.
+
+### F1 Notion knowledge assessment (2026-10-29)
+
+**Conclusion:** the wider F1 workspace contains enough substantive information for a focused RAG pilot, beyond the small connector-test sample. Useful coverage was found in electrical/embedded engineering, driverless hardware, and business documentation/training. Coverage is uneven; document selection and extraction completeness are the immediate constraints. Retrieval accuracy and coverage of real user questions have not been measured.
+
+**Scope:** read-only Notion plugin inspection of representative engineering, driverless, business, project, and training pages and several databases. This was a sample, not an exhaustive workspace audit. Plugin visibility does not establish backend API access, lifecycle eligibility, or approval for the shared corpus. This assessment did not change Notion, expand the backend allowlist, or run embeddings/database writes.
+
+Representative sources and candidate questions:
+
+| Inspected source | Useful evidence / candidate question | Qualification |
+|---|---|---|
+| [IPCC Design](https://app.notion.com/p/22f7c708ac0080b98ba0e4a9d435ecfc) | Inter-core communication rationale: why were HSEM and FreeRTOS recommended, and what alternatives were considered? | Recorded design recommendation; not proof of the current implementation. |
+| [EV Electrical Systems Overview](https://app.notion.com/p/2627c708ac0080a6bad1ff56312218ae) | Responsibilities and relationships of DAQ, BMS, VCU, and power distribution systems. | Preserve document date and lifecycle context. |
+| [Torque Control Algorithm](https://app.notion.com/p/2307c708ac00809faa3fdc1836c79243) | Proposed traction-management problem, sensor inputs, and VCU integration. | A proposal, not evidence that the algorithm has shipped. |
+| [Driverless Hardware](https://app.notion.com/p/3de7c708ac00809a870de04ce733cabe) | Perception/computing options and documented tradeoffs. | Options under consideration; not a finalized bill of materials. |
+| [Business Case Competition IC/EV](https://app.notion.com/p/2a37c708ac0080dd9417fbd37748025a) | Recorded proposal deliverables, formatting requirements, and responsibilities. | Historical milestones and embedded attachments; backend extraction has not been validated for this page. |
+| [EVM and Cost Management Formulas](https://app.notion.com/p/2197c708ac00800a90b7c5cacd6b1232) | Substantive project-management training, including earned-value concepts and formulas. | General training content, not automatically F1-specific policy. |
+
+Observed gaps and implications:
+
+- **Titles and record counts do not establish knowledge coverage.** The [Software Design Document](https://app.notion.com/p/22f7c708ac00813b9b62e44920a8e92b) is a draft placeholder; [CAN Line Shielding Research](https://app.notion.com/p/2707c708ac0080e68ee1e8e837ca15e3) has task properties but no research findings. Do not answer technical questions from task titles alone. Draft/inactive material remains excluded by the agreed lifecycle policy.
+- **Useful documents can be incomplete.** The [CANFD Standard](https://app.notion.com/p/25b7c708ac00807f8ad2e5ed5b75a7fb) mixes useful connectivity/priority information with unfinished identifier tables and open questions. Preserve uncertainty and abstain on missing details.
+- **Project hubs often point elsewhere.** Select and approve substantive child documents individually; a navigation page does not contain all linked knowledge or authorize recursive ingestion.
+- **Content availability differs from extraction readiness.** Attachments, images, and unresolved blocks can prevent the current connector from accepting an otherwise useful page. Keep unsupported records excluded until extraction is implemented and tested; do not silently present partial extraction as complete.
+- **Preserve evidence context.** Keep source paths, headings, dates, lifecycle status, and proposal/decision distinctions. Old plans must not be presented as current facts; training must not be presented as mandatory team policy.
+
+**Recommended first corpus:** curate roughly 10–20 explicitly approved, substantive documents across electrical/embedded documentation, selected software meeting notes, and business documentation. Before expanding ingestion, prepare roughly 20–30 realistic questions with known supporting passages, including missing-answer and proposal-versus-current-state cases. These are pilot targets, not counts of validated ingestible documents. Prioritize answerable content over indexing every task/project record, while retaining the broader agreed scope of meetings, tasks, projects, and technical documentation.
 
 **Next steps:**
 
-1. Review Notion checkpoint 1, then implement cleanup/chunking in checkpoint 2; perform controlled live validation on approved F1 pages/data sources in checkpoint 3. Workspace structure has been inspected read-only; fixtures remain synthetic.
+1. Review the bounded live database results and keep the two unsupported-content records excluded. Use the assessment above to select and approve the first corpus and its source-backed pilot questions; fixtures remain synthetic. Structured-block fallback and Notion attachment handling remain follow-up work.
 2. Implement and test the single-file Box connector using the same normalization contract.
 3. Complete one vertical slice: normalize → chunk → embed → atomically persist → retrieve → answer with verified citations through `/ask`.
 

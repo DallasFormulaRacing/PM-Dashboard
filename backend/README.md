@@ -252,6 +252,102 @@ Implementation references:
 - <https://markdown-it-py.readthedocs.io/en/latest/using.html>
 - <https://github.com/openai/tiktoken>
 
+### Checkpoint 3: controlled live pilot
+
+The single-page F1 Software meeting-note pilot passed on 2026-10-29 using the
+backend's own integration token and official REST API version `2026-03-11`.
+It produced 2 sections (one body, one properties) and 2 chunks containing 107
+and 19 tokens. Page identity, canonical page URL, section references, final
+token counts, and local chunk determinism passed. A second live read returned
+the same source version and identical normalized documents/chunks. Notion
+reported zero extraction warnings. No page text or credentials were saved to
+fixtures, no embeddings/generation were requested, and no database writes ran.
+
+The pilot has a generic title property and no status property, so ordinary
+schema inference returns `technical_doc` and `implicit_active`. A second test
+with explicit `meeting_note` classification also passed. The CLI override below
+affects only that test; set `document_kind: "meeting_note"` in the page's
+`NOTION_SOURCE_POLICIES` entry for the same classification during regular ingestion.
+
+To reproduce, set `NOTION_API_TOKEN` in the ignored repository-root `.env`,
+include the pilot UUID in `NOTION_ALLOWED_PAGE_IDS`, and share the page with
+that read-only integration. Keep the token out of source control and chat.
+From `backend/`, replacing `APPROVED_PAGE_UUID` with the explicitly approved ID:
+
+```bash
+python scripts/check_notion_live.py --page-id APPROVED_PAGE_UUID --preflight
+python scripts/check_notion_live.py --page-id APPROVED_PAGE_UUID --document-kind meeting_note --repeat
+```
+
+Preflight performs no network I/O. The live command reads only the selected page
+and any unknown subtrees returned by its Markdown response. It reports counts,
+fixed validation results, cleanup statistics, and sanitized error categories;
+it does not print the page title/body, people, raw properties, or API error
+messages. Exit code 0 means ready/passed; 2 means blocked, excluded, failed, or
+inconclusive because the source changed between reads. Mock tests cover the
+diagnostic itself; `python -m pytest tests/unit tests/e2e` never invokes live Notion.
+
+That initial pilot validated one page. The bounded database tests below extend
+the live coverage; they do not validate the entire workspace.
+
+### Bounded Notion database tests
+
+The diagnostic also accepts `--data-source-id`. It retrieves the approved schema
+and samples at most five direct records, using at most five query pages (with
+the connector's existing bounded retries). It never follows other data sources.
+An unfiltered sample includes inactive metadata so the test can verify that
+fresh lifecycle checks exclude records before any Markdown request.
+
+```bash
+python scripts/check_notion_live.py --data-source-id APPROVED_DATA_SOURCE_UUID --preflight
+python scripts/check_notion_live.py --data-source-id APPROVED_DATA_SOURCE_UUID --limit 5 --repeat
+python scripts/check_notion_live.py --data-source-id APPROVED_DATA_SOURCE_UUID --limit 5 --eligible-only --repeat
+```
+
+The ID must be in `NOTION_ALLOWED_DATA_SOURCE_IDS` and shared with the backend
+integration. Source policies in `.env` supply document kind and property mappings;
+`--document-kind` remains an optional test-only override. `--eligible-only` uses
+the same schema-backed status filter as production batch normalization. Local
+fresh-page lifecycle and source-membership checks still run. The report says
+whether that server filter was applied, whether more records are available,
+and whether the selected query finished. A limited sample is never a full sync
+or a basis for deleting indexed records. `sample_notion_pages` is deliberately
+separate from the complete-query `list_notion_pages` API.
+
+Results on 2026-10-29: **16 distinct records across four sources; 9 processed
+into 12 chunks, 5 excluded before body access, and 2 blocked by unsupported
+content**. Repeat reads of successful records produced identical output. The
+published attachment-based meeting note and the task with two unresolved blocks
+were not accepted as healthy documents. Metadata checks are reported separately
+from extraction success, so property coverage cannot hide a failed body parse.
+
+See [the validation report](docs/notion-live-validation-2026-10-29.md) for sample
+breakdown, property-only records, and remaining coverage gaps. The local ignored
+`.env` now contains the four test source IDs and explicit meeting/task kinds;
+the integration token was left unchanged. Tests did not create a database source
+registry, persist organizational documents, or call embeddings/generation.
+
+### Reviewing actual chunks locally
+
+The live diagnostic intentionally prints no chunk text. To explicitly export
+approved real content for human review, use a Git-ignored local directory:
+
+```bash
+python scripts/export_notion_chunks.py --data-source-id APPROVED_DATA_SOURCE_UUID --output-dir .local/notion-review
+```
+
+Repeat `--data-source-id` to select additional approved sources (maximum four).
+The exporter samples at most five eligible records per source, uses configured
+source policies, and produces `chunks.md` plus `chunks.json`. Markdown shows the
+exact chunk text, source URLs, references, and token counts; JSON also includes
+normalized document sections. Optional repeated `--expected-page-id` arguments
+require the sample to match a known record set before any review files are written.
+
+These are refreshed live snapshots, not archived copies of earlier in-memory
+tests. Files have private permissions and existing directories are never
+overwritten. `/backend/.local/` is ignored by Git because exports contain actual
+organizational text and people metadata. No embedding or database indexing runs.
+
 ## Run tests
 
 With the Docker database healthy, run from `backend/`:

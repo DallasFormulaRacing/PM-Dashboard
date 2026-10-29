@@ -18,15 +18,14 @@ from app.config import Settings, get_settings
 from app.domain.documents import DocumentSection, NormalizedDocument
 from app.ingestion.notion_markdown import MarkdownExtractionError, clean_notion_markdown
 from app.connectors.notion_properties import (
-    ACTIVE_STATUSES,
     PROPERTY_ALIASES,
     NotionPropertyError,
     NotionSourcePolicy,
     find_property,
     infer_document_kind,
     lifecycle_reason,
+    lifecycle_query_filter,
     normalize_properties,
-    normalized_status,
     property_summary,
 )
 
@@ -97,6 +96,15 @@ class NotionBatchResult:
 
     documents: tuple[NormalizedDocument, ...]
     skipped: tuple[NotionSkippedRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class NotionPageSample:
+    """An explicitly bounded metadata sample, never a complete sync result."""
+
+    pages: tuple[dict[str, Any], ...]
+    has_more: bool
+    query_requests: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -326,6 +334,30 @@ class NotionConnector:
         Use fetch_and_normalize_data_source for lifecycle-filtered documents.
         """
 
+        result = await self._query_notion_pages(data_source_id, query_filter=query_filter)
+        return list(result.pages)
+
+    async def sample_notion_pages(
+        self, data_source_id: str, *, limit: int = 5,
+        query_filter: Mapping[str, Any] | None = None,
+    ) -> NotionPageSample:
+        """Read at most five direct rows and make at most five query requests.
+
+        Sampling includes inactive metadata so diagnostics can verify exclusion
+        before Markdown access. Only sampled IDs receive discovery grants. This
+        result must never be used to reconcile deletions or claim a complete sync.
+        """
+
+        if type(limit) is not int or not 1 <= limit <= 5:
+            raise ValueError("Sample limit must be an integer between 1 and 5")
+        return await self._query_notion_pages(
+            data_source_id, limit=limit, max_requests=5, query_filter=query_filter,
+        )
+
+    async def _query_notion_pages(
+        self, data_source_id: str, *, query_filter: Mapping[str, Any] | None = None,
+        limit: int | None = None, max_requests: int | None = None,
+    ) -> NotionPageSample:
         canonical_id = self._require_allowed_data_source(data_source_id)
         previous = {key for key, value in self._page_sources.items() if value == canonical_id}
         self._discovered_page_ids.difference_update(previous)
@@ -336,9 +368,12 @@ class NotionConnector:
         discovered_ids: set[str] = set()
         cursor: str | None = None
         seen_cursors: set[str] = set()
+        requests = 0
 
         while True:
-            request_body: dict[str, Any] = {"page_size": 100}
+            request_body: dict[str, Any] = {
+                "page_size": 100 if limit is None else limit - len(results),
+            }
             if query_filter is not None:
                 request_body["filter"] = dict(query_filter)
             if cursor is not None:
@@ -349,9 +384,12 @@ class NotionConnector:
                 f"/v1/data_sources/{quote(canonical_id, safe='')}/query",
                 json=request_body,
             )
+            requests += 1
             raw_results = payload.get("results")
             if not isinstance(raw_results, list):
                 raise NotionResponseError("Notion data-source query omitted results")
+            if len(raw_results) > request_body["page_size"]:
+                raise NotionResponseError("Notion query exceeded the requested page size")
 
             for result in raw_results:
                 if not isinstance(result, dict) or result.get("object") != "page":
@@ -375,17 +413,21 @@ class NotionConnector:
             next_cursor = payload.get("next_cursor")
             if not isinstance(has_more, bool):
                 raise NotionResponseError("Notion query omitted pagination status")
-            if not has_more:
+            if has_more:
+                if not isinstance(next_cursor, str) or not next_cursor:
+                    raise NotionResponseError(
+                        "Notion data-source query reported more results without a cursor"
+                    )
+                if next_cursor in seen_cursors:
+                    raise NotionResponseError("Notion query repeated a pagination cursor")
+                seen_cursors.add(next_cursor)
+            if (
+                not has_more or (limit is not None and len(results) >= limit)
+                or (max_requests is not None and requests >= max_requests)
+            ):
                 self._discovered_page_ids.update(discovered_ids)
                 self._page_sources.update({page_id: canonical_id for page_id in discovered_ids})
-                return results
-            if not isinstance(next_cursor, str) or not next_cursor:
-                raise NotionResponseError(
-                    "Notion data-source query reported more results without a cursor"
-                )
-            if next_cursor in seen_cursors:
-                raise NotionResponseError("Notion query repeated a pagination cursor")
-            seen_cursors.add(next_cursor)
+                return NotionPageSample(tuple(results), has_more, requests)
             cursor = next_cursor
 
     async def fetch_and_normalize_data_source(self, data_source_id: str) -> NotionBatchResult:
@@ -395,25 +437,9 @@ class NotionConnector:
         schema = await self.fetch_notion_data_source(canonical_id)
         policy = self._source_policies.get(canonical_id, NotionSourcePolicy())
         try:
-            status = find_property(schema["properties"], "status", policy)
+            query_filter = lifecycle_query_filter(schema, policy)
         except NotionPropertyError as error:
             raise NotionResponseError(str(error)) from error
-        query_filter = None
-        if status is not None and status[1].get("type") in {"status", "select"}:
-            kind = status[1]["type"]
-            settings = status[1].get(kind)
-            if not isinstance(settings, Mapping) or not isinstance(settings.get("options"), list):
-                raise NotionResponseError("Notion status schema omitted its options")
-            options = settings["options"]
-            conditions = [
-                {"property": status[1].get("id", status[0]), kind: {"equals": option["name"]}}
-                for option in options
-                if isinstance(option, Mapping) and isinstance(option.get("name"), str)
-                and normalized_status(option["name"]) in ACTIVE_STATUSES
-            ]
-            if conditions:
-                query_filter = conditions[0] if len(conditions) == 1 else {"or": conditions}
-
         pages = await self.list_notion_pages(canonical_id, query_filter=query_filter)
         documents: list[NormalizedDocument] = []
         skipped: list[NotionSkippedRecord] = []

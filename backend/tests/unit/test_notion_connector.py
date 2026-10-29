@@ -435,3 +435,115 @@ def test_recovery_requires_a_location_and_rejects_cycles(cycle) -> None:
     result = run(scenario())
     assert result.complete is False
     assert BLOCK_ID in result.unresolved_block_ids
+
+
+def test_sample_is_bounded_and_handles_empty_pages_before_records() -> None:
+    queries = []
+
+    def handler(request):
+        if not request.url.path.endswith("/query"):
+            return httpx.Response(200, json={"object": "page", "id": DISCOVERED_PAGE_ID})
+        queries.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "results": []
+                if len(queries) == 1
+                else [
+                    {"object": "page", "id": PAGE_ID},
+                    {"object": "page", "id": DISCOVERED_PAGE_ID},
+                ],
+                "has_more": True,
+                "next_cursor": f"cursor-{len(queries)}",
+            },
+        )
+
+    async def scenario():
+        connector, client = make_connector(
+            handler, allowed_page_ids=(), allowed_data_source_ids=(DATA_SOURCE_ID,)
+        )
+        try:
+            sample = await connector.sample_notion_pages(DATA_SOURCE_ID, limit=2)
+            await connector.fetch_notion_page(DISCOVERED_PAGE_ID)
+            with pytest.raises(NotionSourceNotAllowedError):
+                await connector.fetch_notion_page(BLOCK_ID)
+            return sample
+        finally:
+            await client.aclose()
+
+    sample = run(scenario())
+    assert len(sample.pages) == 2 and sample.has_more is True
+    assert sample.query_requests == len(queries) == 2
+    assert [query["page_size"] for query in queries] == [2, 2]
+
+
+def test_sample_stops_after_five_empty_query_pages() -> None:
+    queries = []
+
+    def handler(request):
+        queries.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "results": [],
+                "has_more": True,
+                "next_cursor": f"cursor-{len(queries)}",
+            },
+        )
+
+    async def scenario():
+        connector, client = make_connector(handler, allowed_data_source_ids=(DATA_SOURCE_ID,))
+        try:
+            return await connector.sample_notion_pages(DATA_SOURCE_ID)
+        finally:
+            await client.aclose()
+
+    sample = run(scenario())
+    assert sample.pages == () and sample.has_more is True
+    assert sample.query_requests == len(queries) == 5
+
+
+@pytest.mark.parametrize("limit", [0, 6, True, 1.5])
+def test_sample_rejects_invalid_limits_before_io(limit) -> None:
+    def handler(_):
+        raise AssertionError("Invalid sample configuration must not perform I/O")
+
+    async def scenario():
+        connector, client = make_connector(handler, allowed_data_source_ids=(DATA_SOURCE_ID,))
+        try:
+            with pytest.raises(ValueError, match="Sample limit"):
+                await connector.sample_notion_pages(DATA_SOURCE_ID, limit=limit)
+        finally:
+            await client.aclose()
+
+    run(scenario())
+
+
+def test_oversized_sample_response_does_not_grant_discovery_access() -> None:
+    def handler(_):
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"object": "page", "id": PAGE_ID},
+                    {"object": "page", "id": DISCOVERED_PAGE_ID},
+                ],
+                "has_more": False,
+            },
+        )
+
+    async def scenario():
+        from app.connectors.notion import NotionResponseError
+
+        connector, client = make_connector(
+            handler, allowed_page_ids=(), allowed_data_source_ids=(DATA_SOURCE_ID,)
+        )
+        try:
+            with pytest.raises(NotionResponseError, match="requested page size"):
+                await connector.sample_notion_pages(DATA_SOURCE_ID, limit=1)
+            with pytest.raises(NotionSourceNotAllowedError):
+                await connector.fetch_notion_page(PAGE_ID)
+        finally:
+            await client.aclose()
+
+    run(scenario())

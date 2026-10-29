@@ -128,6 +128,32 @@ def lifecycle_reason(page: Mapping[str, Any], policy: NotionSourcePolicy) -> str
     return None
 
 
+def lifecycle_query_filter(
+    schema: Mapping[str, Any], policy: NotionSourcePolicy,
+) -> dict[str, Any] | None:
+    """Build the schema-backed eligibility filter shared by sync and diagnostics.
+
+    Local fresh-page checks remain mandatory, including for statusless sources.
+    """
+
+    status = find_property(schema["properties"], "status", policy)
+    if status is None or status[1].get("type") not in {"status", "select"}:
+        return None
+    kind = status[1]["type"]
+    settings = status[1].get(kind)
+    if not isinstance(settings, Mapping) or not isinstance(settings.get("options"), list):
+        raise NotionPropertyError("Notion status schema omitted its options")
+    conditions = [
+        {"property": status[1].get("id", status[0]), kind: {"equals": option["name"]}}
+        for option in settings["options"]
+        if isinstance(option, Mapping) and isinstance(option.get("name"), str)
+        and normalized_status(option["name"]) in ACTIVE_STATUSES
+    ]
+    if not conditions:
+        return None
+    return conditions[0] if len(conditions) == 1 else {"or": conditions}
+
+
 def plain_text(value: Any) -> str:
     if not isinstance(value, list):
         raise NotionPropertyError("Notion rich-text property is not an array")
