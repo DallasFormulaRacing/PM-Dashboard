@@ -1,0 +1,16 @@
+[Unit]
+Description=PM Dashboard Celery beat (outbox sweeper) - run exactly one
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=app
+WorkingDirectory=/srv/pm-dashboard/backend
+EnvironmentFile=/etc/pm-dashboard/worker.env
+ExecStart=/srv/pm-dashboard/backend/.venv/bin/celery -A app.worker.tasks:celery_app beat --loglevel=INFO --schedule=/var/lib/pm-dashboard/celerybeat-schedule
+StateDirectory=pm-dashboard
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
