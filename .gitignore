@@ -8,7 +8,6 @@ __pycache__/
 .coverage
 htmlcov/
 *.egg-info/
-AGENTS.md
 /backend/.local/
 .gitignore
 AGENTS.md

@@ -1,9 +1,12 @@
 """Environment-based application configuration."""
 
 from functools import lru_cache
+import json
 from pathlib import Path
+from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
+from pydantic_settings import NoDecode
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -42,6 +45,60 @@ class Settings(BaseSettings):
         default_factory=dict,
         validation_alias="NOTION_SOURCE_POLICIES",
     )
+
+    box_auth_mode: Literal["developer_token", "oauth"] | None = Field(
+        default=None,
+        validation_alias="BOX_AUTH_MODE",
+    )
+    box_account_label: str | None = Field(default=None, validation_alias="BOX_ACCOUNT_LABEL")
+    box_developer_token: SecretStr | None = Field(
+        default=None,
+        validation_alias="BOX_DEVELOPER_TOKEN",
+    )
+    box_client_id: str | None = Field(default=None, validation_alias="BOX_CLIENT_ID")
+    box_client_secret: SecretStr | None = Field(
+        default=None,
+        validation_alias="BOX_CLIENT_SECRET",
+    )
+    box_oauth_redirect_uri: str = Field(
+        default="http://localhost:8765/callback",
+        validation_alias="BOX_OAUTH_REDIRECT_URI",
+    )
+    box_oauth_token_path: Path = Field(
+        default=REPOSITORY_ROOT / "backend" / ".local" / "box_oauth_tokens.json",
+        validation_alias="BOX_OAUTH_TOKEN_PATH",
+    )
+    # Comma-separated in .env (e.g. 123,456); JSON lists are also accepted.
+    box_allowed_file_ids: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        validation_alias="BOX_ALLOWED_FILE_IDS",
+    )
+    box_allowed_extensions: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["pdf", "docx", "md", "txt"],
+        validation_alias="BOX_ALLOWED_EXTENSIONS",
+    )
+    box_max_file_bytes: int = Field(
+        default=25 * 1024 * 1024,
+        gt=0,
+        validation_alias="BOX_MAX_FILE_BYTES",
+    )
+    box_request_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        validation_alias="BOX_REQUEST_TIMEOUT_SECONDS",
+    )
+
+    @field_validator("box_allowed_file_ids", "box_allowed_extensions", mode="before")
+    @classmethod
+    def split_comma_list(cls, value: object) -> object:
+        """Accept `a,b,c` or a JSON list; blank entries are dropped."""
+
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("["):
+                return json.loads(stripped)
+            return [part.strip() for part in stripped.split(",") if part.strip()]
+        return value
 
     model_config = SettingsConfigDict(
         env_file=REPOSITORY_ROOT / ".env",

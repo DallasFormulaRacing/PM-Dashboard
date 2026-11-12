@@ -348,6 +348,39 @@ tests. Files have private permissions and existing directories are never
 overwritten. `/backend/.local/` is ignored by Git because exports contain actual
 organizational text and people metadata. No embedding or database indexing runs.
 
+## Box connector (test track)
+
+Reads only allowlisted Box file IDs, downloads each to a private temporary file
+(size cap, SHA-1 verified, always deleted), extracts text, and emits the same
+`NormalizedDocument` as Notion. Citations use `https://app.box.com/file/{id}`, never
+signed download URLs. Design and decisions: `docs/box-integration-plan.md`.
+
+Extraction is lightweight because Docling/PyTorch cannot install on the Intel macOS
+dev host: PDF via `pypdf` (one section per page, page-number citations, no OCR),
+DOCX via `python-docx` (heading paths, lists, tables, hyperlink targets), and
+MD/TXT directly. Image-only PDFs, Markdown with embedded media, and non-allowed
+extensions (e.g. `.pptx`) are rejected or excluded explicitly, never ingested as
+partial documents.
+
+Configure in the repository-root `.env` (see `.env.example`). Authentication:
+
+```bash
+# OAuth user login (needs a saved redirect URI in the Box Developer Console)
+python scripts/box_oauth_login.py          # writes .local/box_oauth_tokens.json (0600)
+# or, for a 60-minute smoke test: BOX_AUTH_MODE=developer_token + BOX_DEVELOPER_TOKEN
+```
+
+Live, read-only, content-free check of every allowlisted file (metadata → policy →
+download → extract → chunk, run twice for determinism):
+
+```bash
+python scripts/check_box_live.py            # add --export to write real chunks to
+                                            # .local/box-chunk-review/ (never commit)
+```
+
+Unit tests (`tests/unit/test_box_*.py`) use mocked HTTP and synthetic PDF/DOCX/MD
+built in memory; they never contact Box.
+
 ## Run tests
 
 With the Docker database healthy, run from `backend/`:
