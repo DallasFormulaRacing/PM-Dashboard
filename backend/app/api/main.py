@@ -1,16 +1,16 @@
-"""FastAPI app. Endpoint specs are coming later; they should call the functions in
-`app.messaging.service` inside a request-scoped session and commit once at the end."""
+"""FastAPI app. Endpoints take an `AsyncSession` from `Depends(get_db)`, call the functions in
+`app.messaging.async_service`, and commit once at the end."""
 
 import logging
 
-import redis
+import redis.asyncio as redis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.config import get_settings
-from app.db import get_engine
+from app.db import get_async_engine
 
 log = logging.getLogger(__name__)
 settings = get_settings()
@@ -26,17 +26,18 @@ app.add_middleware(
 
 
 @app.get("/healthz")
-def healthz() -> JSONResponse:
+async def healthz() -> JSONResponse:
     checks: dict[str, str] = {}
     try:
-        with get_engine().connect() as conn:
-            conn.execute(text("SELECT 1"))
+        async with get_async_engine().connect() as conn:
+            await conn.execute(text("SELECT 1"))
         checks["database"] = "ok"
     except Exception as exc:
         log.warning("healthz: database check failed: %s", exc)
         checks["database"] = "error"
     try:
-        redis.Redis.from_url(settings.redis_url, socket_timeout=2, socket_connect_timeout=2).ping()
+        async with redis.Redis.from_url(settings.redis_url, socket_timeout=2, socket_connect_timeout=2) as r:
+            await r.ping()
         checks["redis"] = "ok"
     except Exception as exc:
         log.warning("healthz: redis check failed: %s", exc)

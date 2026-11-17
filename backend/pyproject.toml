@@ -7,7 +7,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "gunicorn>=23.0",
-    "sqlalchemy>=2.0.36",
+    "sqlalchemy[asyncio]>=2.0.36",
     "psycopg[binary]>=3.2",
     "alembic>=1.14",
     "celery[redis]>=5.4",
@@ -19,6 +19,7 @@ dependencies = [
 dev = [
     "pytest>=8.3",
     "respx>=0.21",
+    "aiosqlite>=0.20",
 ]
 
 [build-system]

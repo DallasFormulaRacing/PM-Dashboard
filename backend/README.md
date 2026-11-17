@@ -9,6 +9,7 @@ architecture; this file covers running the code.
 | --- | --- |
 | `app/models.py` | Tables: users, tasks, announcements, discord_channels, outbound_messages (the outbox) |
 | `app/messaging/service.py` | What endpoints call: `post_announcement`, `create_task`, `assign_task`, `task_changed` |
+| `app/messaging/async_service.py` | The same four functions taking an `AsyncSession`, for async endpoints |
 | `app/messaging/outbox.py` | Writes outbox rows; queues them only after the transaction commits |
 | `app/messaging/payloads.py` | Discord embed builders and limit checks |
 | `app/messaging/condense.py` | Long-note handling; `Summarizer` hook for future LLM summaries (truncates for now) |
@@ -72,10 +73,15 @@ Manage Webhooks lets channel posts appear under the sender's name.
 
 ## Wiring endpoints later
 
-Each endpoint opens a session, calls the service function, and commits once:
+Endpoints are async. Each one takes a request-scoped `AsyncSession` from `get_db`, calls the
+matching function in `app/messaging/async_service.py`, and commits once:
 
 ```python
-with get_session_factory()() as session:
-    task = service.create_task(session, creator=current_user, title=..., assignee=assignee)
-    session.commit()  # outbox rows are queued to Celery here
+@router.post("/tasks")
+async def create(body: TaskIn, db: AsyncSession = Depends(get_db), user: User = Depends(current_user)):
+    task = await async_service.create_task(db, creator=user, title=body.title, assignee=...)
+    await db.commit()  # outbox rows are queued to Celery here
+    return task
 ```
+
+The worker, beat and `app.cli` stay on the sync engine and call `app/messaging/service.py` directly.
